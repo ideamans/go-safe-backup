@@ -7,6 +7,7 @@ on:
     branches: [ main ]
 
 jobs:
+  # Unit tests on multiple platforms
   test:
     strategy:
       matrix:
@@ -36,48 +37,112 @@ jobs:
     - name: Install dependencies
       run: go mod download
     
-    - name: Run linter
-      if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.22'
-      uses: golangci/golangci-lint-action@v6
-      with:
-        version: latest
-        args: --timeout=5m
-    
     - name: Run unit tests
-      run: go test -v -short -race -coverprofile=coverage.out ./...
-    
-    - name: Run integration tests (Linux only)
-      if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.22'
-      run: |
-        # Start MinIO for integration tests
-        docker run -d --name minio \
-          -p 9000:9000 \
-          -e "MINIO_ROOT_USER=minioadmin" \
-          -e "MINIO_ROOT_PASSWORD=minioadmin" \
-          minio/minio server /data
-        
-        # Wait for MinIO to be ready
-        timeout 60 bash -c 'until curl -f http://localhost:9000/minio/health/live; do sleep 2; done'
-        
-        # Install MinIO client and create buckets
-        wget https://dl.min.io/client/mc/release/linux-amd64/mc
-        chmod +x mc
-        ./mc alias set local http://localhost:9000 minioadmin minioadmin
-        ./mc mb local/test-backup-bucket || true
-        ./mc mb local/test-multi-backup-bucket || true
-        
-        # Run integration tests
-        go test -v -tags=integration -timeout=10m ./...
-    
-    - name: Test examples
-      if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.22'
-      run: |
-        cd examples/local && go mod tidy && go build -o /dev/null .
-        cd ../s3 && go mod tidy && go build -o /dev/null .
-        cd ../local && timeout 60 go run main.go
+      run: go test -v -short -race -coverprofile=./coverage.out ./...
+      shell: bash
     
     - name: Upload coverage
       if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.22'
       uses: codecov/codecov-action@v4
       with:
         file: ./coverage.out
+
+  # Linting (Linux only)
+  lint:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.22'
+    
+    - name: Run linter
+      uses: golangci/golangci-lint-action@v6
+      with:
+        version: latest
+        args: --timeout=5m
+
+  # Integration tests (Linux only)
+  integration:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.22'
+    
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ubuntu-latest-go-1.22-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ubuntu-latest-go-1.22-
+    
+    - name: Install dependencies
+      run: go mod download
+    
+    - name: Start MinIO
+      run: |
+        docker run -d --name minio \
+          -p 9000:9000 \
+          -e "MINIO_ROOT_USER=minioadmin" \
+          -e "MINIO_ROOT_PASSWORD=minioadmin" \
+          minio/minio server /data
+    
+    - name: Wait for MinIO
+      run: timeout 60 bash -c 'until curl -f http://localhost:9000/minio/health/live; do sleep 2; done'
+    
+    - name: Setup MinIO buckets
+      run: |
+        wget https://dl.min.io/client/mc/release/linux-amd64/mc
+        chmod +x mc
+        ./mc alias set local http://localhost:9000 minioadmin minioadmin
+        ./mc mb local/test-backup-bucket || true
+        ./mc mb local/test-multi-backup-bucket || true
+    
+    - name: Run integration tests
+      run: go test -v -tags=integration -timeout=10m ./...
+
+  # Test examples (Linux only)
+  examples:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.22'
+    
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ubuntu-latest-go-1.22-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ubuntu-latest-go-1.22-
+    
+    - name: Test local example
+      run: |
+        cd examples/local
+        go mod tidy
+        go build -o /dev/null .
+        timeout 60 go run main.go
+    
+    - name: Test S3 example
+      run: |
+        cd examples/s3
+        go mod tidy
+        go build -o /dev/null .
