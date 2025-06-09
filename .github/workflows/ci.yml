@@ -90,25 +90,6 @@ jobs:
     - name: Install dependencies
       run: go mod download
     
-    - name: Start MinIO
-      run: |
-        docker run -d --name minio \
-          -p 9000:9000 \
-          -e "MINIO_ROOT_USER=minioadmin" \
-          -e "MINIO_ROOT_PASSWORD=minioadmin" \
-          minio/minio server /data
-    
-    - name: Wait for MinIO
-      run: timeout 60 bash -c 'until curl -f http://localhost:9000/minio/health/live; do sleep 2; done'
-    
-    - name: Setup MinIO buckets
-      run: |
-        wget https://dl.min.io/client/mc/release/linux-amd64/mc
-        chmod +x mc
-        ./mc alias set local http://localhost:9000 minioadmin minioadmin
-        ./mc mb local/test-backup-bucket || true
-        ./mc mb local/test-multi-backup-bucket || true
-    
     - name: Run integration tests
       run: go test -v -tags=integration -timeout=10m ./...
 
