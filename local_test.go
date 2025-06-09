@@ -428,8 +428,16 @@ func TestLocalBackupSession_WaitForCompletion(t *testing.T) {
 		require.NoError(t, err)
 		defer func() { _ = session.Close() }()
 
-		// 非常に短いタイムアウトを設定
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+		// WaitGroupに手動で処理を追加してタイムアウトをシミュレート
+		session.wg.Add(1)
+		go func() {
+			// 長時間の処理をシミュレート（テスト終了後にクリーンアップ）
+			defer session.wg.Done()
+			time.Sleep(10 * time.Second) // テストタイムアウトより長い時間
+		}()
+
+		// 短いタイムアウトを設定
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 		defer cancel()
 
 		err = session.WaitForCompletion(ctx)
